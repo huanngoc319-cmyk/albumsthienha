@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Galaxy 3D JSON</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<style>
+html,body{
+  margin:0;width:100%;height:100%;
+  background:#000;overflow:hidden;
+}
+canvas{display:block}
+#ui{
+  position:fixed;top:10px;left:10px;
+  display:flex;gap:6px;z-index:5;
+}
+button{
+  background:#111;color:#fff;
+  border:1px solid #333;
+  padding:6px 10px;border-radius:6px;
+  font-size:13px;
+}
+#viewer{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.9);
+  display:none;justify-content:center;
+  align-items:center;z-index:10;
+}
+#viewer img{max-width:90%;max-height:90%;border-radius:14px}
+#viewer span{
+  position:absolute;top:15px;right:25px;
+  font-size:30px;color:#fff;
+}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div id="ui">
+>
+  <button onclick="importJSON()">📥 NHẬP FILE</button>
+  
+</div>
+
+<div id="viewer" onclick="closeViewer()">
+  <span>✕</span>
+  <img id="viewImg">
+</div>
+
+<audio id="audio" loop></audio>
+
+<script>
+/* ===== CANVAS ===== */
+const canvas=document.getElementById("c");
+const ctx=canvas.getContext("2d");
+const dpr=window.devicePixelRatio||1;
+function resize(){
+  canvas.width=innerWidth*dpr;
+  canvas.height=innerHeight*dpr;
+  canvas.style.width=innerWidth+"px";
+  canvas.style.height=innerHeight+"px";
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener("resize",resize);resize();
+
+/* ===== DATA ===== */
+const nodes=[];
+const imageBase64s=[];
+let musicBase64="";
+
+/* ===== AUDIO ===== */
+const audio=document.getElementById("audio");
+let audioCtx,analyser,data;
+let bass=0,mid=0,treble=0;
+
+function startAudio(){
+  if(!audioCtx && musicBase64){
+    audioCtx=new (AudioContext||webkitAudioContext)();
+    const src=audioCtx.createMediaElementSource(audio);
+    analyser=audioCtx.createAnalyser();
+    analyser.fftSize=256;
+    data=new Uint8Array(analyser.frequencyBinCount);
+    src.connect(analyser);
+    analyser.connect(audioCtx.destination);
+  }
+  audio.play();
+}
+addEventListener("click",startAudio,{once:true});
+addEventListener("touchstart",startAudio,{once:true});
+
+/* ===== ADD IMAGE ===== */
+function addImages(){
+  const i=document.createElement("input");
+  i.type="file";i.accept="image/*";i.multiple=true;
+  i.onchange=()=>{
+    [...i.files].forEach(f=>{
+      const r=new FileReader();
+      r.onload=e=>{
+        const src=e.target.result;
+        imageBase64s.push(src);
+        nodes.push({
+          img:src,
+          a:Math.random()*Math.PI*2,
+          r:300+Math.random()*400,
+          z:(Math.random()-.5)*300,
+          px:0,py:0,ps:0
+        });
+      };
+      r.readAsDataURL(f);
+    });
+  };
+  i.click();
+}
+
+/* ===== ADD MUSIC ===== */
+function addMusic(){
+  const i=document.createElement("input");
+  i.type="file";i.accept="audio/*";
+  i.onchange=()=>{
+    const r=new FileReader();
+    r.onload=e=>{
+      musicBase64=e.target.result;
+      audio.src=musicBase64;
+    };
+    r.readAsDataURL(i.files[0]);
+  };
+  i.click();
+}
+
+/* ===== STARS ===== */
+const stars=[];
+for(let i=0;i<2500;i++){
+  stars.push({
+    r:Math.random()**0.6*900,
+    a:Math.random()*Math.PI*2,
+    z:(Math.random()-.5)*600,
+    s:Math.random()*1.4+.3
+  });
+}
+
+/* ===== DRAW ===== */
+let rx=0,ry=0,tx=0,ty=0;
+function draw(){
+  ctx.fillStyle="rgba(0,0,0,.35)";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  if(analyser){
+    analyser.getByteFrequencyData(data);
+    bass=data[4]/255;
+    mid=data[40]/255;
+    treble=data[120]/255;
+  }
+   
+  const cx=innerWidth/2,cy=innerHeight/2;
+  const col=`rgb(${120+bass*135},${80+mid*120},${180+treble*75})`;
+
+  stars.forEach(s=>{
+    s.a+=0.002+bass*0.02;
+    let x=Math.cos(s.a)*s.r;
+    let y=Math.sin(s.a)*s.r;
+    let z=s.z;
+    let dy=y*Math.cos(rx)-z*Math.sin(rx);
+    let dz=y*Math.sin(rx)+z*Math.cos(rx);
+    let dx=x*Math.cos(ry)-dz*Math.sin(ry);
+    let sc=900/(900+dz);
+    ctx.fillStyle=col;
+    ctx.beginPath();
+    ctx.arc(cx+dx*sc,cy+dy*sc,(s.s+bass*3+treble*2)*sc,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  nodes.forEach(n=>{
+  n.a += 0.002 + bass*0.01;
+
+  let x = Math.cos(n.a)*n.r;
+  let y = Math.sin(n.a)*n.r;
+  let z = n.z;
+
+  let dy = y*Math.cos(rx) - z*Math.sin(rx);
+  let dz = y*Math.sin(rx) + z*Math.cos(rx);
+  let dx = x*Math.cos(ry) - dz*Math.sin(ry);
+
+  let sc = 900/(900+dz);
+
+  n.ps = (24 + bass*20) * sc;
+  n.px = cx + dx*sc;
+  n.py = cy + dy*sc;
+
+  if(!n.image){
+    n.image = new Image();
+    n.image.src = n.img;
+  }
+
+  ctx.save();
+  ctx.globalAlpha = 0.95;
+  ctx.drawImage(
+    n.image,
+    n.px - n.ps/2,
+    n.py - n.ps/2,
+    n.ps,
+    n.ps
+  );
+  ctx.restore();
+   });
+  rx+=(ty-rx)*0.05;
+  ry+=(tx-ry)*0.05;
+  requestAnimationFrame(draw);
+}
+draw();
+
+/* ===== CONTROL ===== */
+function move(x,y){
+  tx=(x/innerWidth-.5)*1.4;
+  ty=(y/innerHeight-.5)*1.4;
+}
+addEventListener("mousemove",e=>move(e.clientX,e.clientY));
+addEventListener("touchmove",e=>move(e.touches[0].clientX,e.touches[0].clientY),{passive:true});
+
+/* ===== VIEW IMAGE ===== */
+const viewer=document.getElementById("viewer");
+const viewImg=document.getElementById("viewImg");
+canvas.addEventListener("click",e=>{
+  nodes.forEach(n=>{
+    if(Math.hypot(e.clientX-n.px,e.clientY-n.py)<n.ps){
+      viewImg.src=n.img;
+      viewer.style.display="flex";
+      audio.volume=0.3;
+    }
+  });
+});
+function closeViewer(){viewer.style.display="none";audio.volume=1}
+
+/* ===== JSON ===== */
+function exportJSON(){
+  const data={
+    images:imageBase64s,
+    music:musicBase64
+  };
+  const blob=new Blob(
+    [JSON.stringify(data,null,2)],
+    {type:"application/json"}
+  );
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.click();
+}
+function importJSON(){
+  const i=document.createElement("input");
+  i.type="file";i.accept=".json,application/json";
+  i.onchange=()=>{
+    const r=new FileReader();
+    r.onload=e=>{
+      const data=JSON.parse(e.target.result);
+      imageBase64s.length=0;
+      nodes.length=0;
+      if(data.images){
+        data.images.forEach(src=>{
+          imageBase64s.push(src);
+          nodes.push({
+            img:src,
+            a:Math.random()*Math.PI*2,
+            r:300+Math.random()*400,
+            z:(Math.random()-.5)*300,
+            px:0,py:0,ps:0
+          });
+        });
+      }
+      musicBase64=data.music||"";
+      audio.src=musicBase64;
+      alert("✅ Thành Công ");
+    };
+    r.readAsText(i.files[0]);
+  };
+  i.click();
+}
+</script>
+
+</body>
+</html>
